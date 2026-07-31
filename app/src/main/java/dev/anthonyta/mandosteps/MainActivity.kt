@@ -51,6 +51,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        // Every foreground IS a sync: opening the app (or tapping through from
+        // the hub's steps row) refreshes the count without hunting for a button.
+        syncNow()
     }
 
     private fun syncNow() {
@@ -65,10 +68,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun schedulePeriodic() {
+        // UPDATE, not KEEP: KEEP pins whatever interval was enqueued by the first
+        // install forever, so a new APK changing the cadence would silently not.
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "daily-sync",
-            ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
+            ExistingPeriodicWorkPolicy.UPDATE,
+            PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)
                 .setConstraints(connected())
                 .build(),
         )
