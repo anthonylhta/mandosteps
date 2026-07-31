@@ -23,6 +23,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Browsers refuse to launch MAIN/LAUNCHER intents from web pages —
+                 Chrome adds CATEGORY_BROWSABLE to every intent: link before
+                 resolving, so the hub's sync tap needs a BROWSABLE filter.
+                 Opening the app is the only effect (onResume syncs), so any
+                 page triggering it is harmless. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mandosteps" />
+            </intent-filter>
         </activity>
 
         <!-- Health Connect refuses to show its permission sheet unless the app
