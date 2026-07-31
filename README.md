@@ -16,7 +16,7 @@ out to be the cleaner path.
 Samsung Health ──sync──▶ Health Connect (on-device)
                               │  AggregateRequest (steps, local-midnight ranges)
                               ▼
-                        this app (WorkManager, every ~6h)
+                        this app (WorkManager hourly + on open)
                               │  POST {steps, date} · bearer auth
                               ▼
                    anthonyta.dev/api/daily/steps
