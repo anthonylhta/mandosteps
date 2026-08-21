@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.lifecycle.lifecycleScope
 import androidx.work.Constraints
@@ -25,7 +26,10 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
-    private val stepsPermission = HealthPermission.getReadPermission(StepsRecord::class)
+    private val healthPermissions = setOf(
+        HealthPermission.getReadPermission(StepsRecord::class),
+        HealthPermission.getReadPermission(SleepSessionRecord::class),
+    )
 
     private val requestPermission =
         registerForActivityResult(PermissionController.createRequestPermissionResultContract()) {
@@ -85,7 +89,10 @@ class MainActivity : ComponentActivity() {
             HealthConnectClient.SDK_AVAILABLE -> lifecycleScope.launch {
                 val client = HealthConnectClient.getOrCreate(this@MainActivity)
                 val granted = client.permissionController.getGrantedPermissions()
-                if (stepsPermission !in granted) requestPermission.launch(setOf(stepsPermission))
+                // Only what's actually missing: an update that adds a read (sleep)
+                // must not re-ask for the one already granted (steps).
+                val missing = healthPermissions - granted
+                if (missing.isNotEmpty()) requestPermission.launch(missing)
             }
             else -> status.text = getString(R.string.hc_unavailable)
         }

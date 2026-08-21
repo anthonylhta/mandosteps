@@ -4,7 +4,7 @@ import android.os.Bundle
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 
-/** Shown when Health Connect asks why the app wants the steps permission. */
+/** Shown when Health Connect asks why the app wants the steps and sleep permissions. */
 class RationaleActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
