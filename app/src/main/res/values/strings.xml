@@ -4,9 +4,11 @@
     <string name="never_synced">never synced</string>
     <string name="syncing">syncing…</string>
     <string name="sync_now">sync now</string>
+    <string name="backfill">backfill 120 days</string>
+    <string name="backfilling">backfilling 120 days… keep the app open</string>
     <string name="battery_ask">allow background sync</string>
     <string name="battery_ok">background sync allowed ✓</string>
     <string name="hc_unavailable">Health Connect unavailable on this device</string>
-    <string name="explainer">reads today + yesterday\'s steps and sleep from Health Connect every hour and sends them to anthonyta.dev</string>
+    <string name="explainer">reads the last week\'s steps and sleep from Health Connect every hour and sends them to anthonyta.dev</string>
     <string name="rationale">MandoSteps reads your daily step total and your sleep sessions from Health Connect, and sends each day\'s step count and minutes asleep to your own site, anthonyta.dev. Nothing else is read or shared.</string>
 </resources>

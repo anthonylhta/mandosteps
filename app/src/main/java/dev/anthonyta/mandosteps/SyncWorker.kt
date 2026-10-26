@@ -5,7 +5,7 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
-import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.work.CoroutineWorker
@@ -16,14 +16,17 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.Period
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * Reads yesterday's and today's step totals plus the sleep of the same two nights
- * from Health Connect and POSTs each to the hub's ingest routes. Yesterday rides
- * along on every run so a day where the phone was off self-heals — the routes
- * overwrite same-day entries.
+ * Reads the last [KEY_DAYS] days of step totals plus the sleep of the same nights
+ * from Health Connect and POSTs each to the hub's ingest routes. The routine run
+ * covers a week, so a stretch where Samsung kept the job asleep self-heals on the
+ * next run that gets through; the backfill button widens it to the hub's whole
+ * retained history. The routes overwrite same-day entries, so re-posting is
+ * idempotent.
  */
 class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
@@ -39,31 +42,37 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
+        val first = today.minusDays(inputData.getInt(KEY_DAYS, ROUTINE_DAYS) - 1L)
         val report = StringBuilder()
 
-        for (day in listOf(today.minusDays(1), today)) {
-            val start = day.atStartOfDay(zone).toInstant()
-            val end = day.plusDays(1).atStartOfDay(zone).toInstant()
-            val steps = try {
-                val agg = client.aggregate(
-                    AggregateRequest(
-                        setOf(StepsRecord.COUNT_TOTAL),
-                        TimeRangeFilter.between(start, end),
-                    )
+        // One grouped read for the whole window rather than a read per day, so a
+        // backfill stays well inside Health Connect's read quota.
+        val totals = try {
+            client.aggregateGroupByPeriod(
+                AggregateGroupByPeriodRequest(
+                    setOf(StepsRecord.COUNT_TOTAL),
+                    TimeRangeFilter.between(first.atStartOfDay(), today.plusDays(1).atStartOfDay()),
+                    Period.ofDays(1),
                 )
-                (agg[StepsRecord.COUNT_TOTAL] ?: 0L).coerceIn(0L, MAX_DAILY_STEPS)
-            } catch (e: Exception) {
-                return retryOrFail(ctx, "Health Connect read failed: ${e.message}")
-            }
+            ).associate { it.startTime.toLocalDate() to it.result[StepsRecord.COUNT_TOTAL] }
+        } catch (e: Exception) {
+            return retryOrFail(ctx, "Health Connect read failed: ${e.message}")
+        }
 
+        var stepDays = 0
+        for (day in window(first, today)) {
+            // A day Health Connect holds nothing for (phone off, before install) is
+            // skipped, never posted as 0 — the same rule sleep follows.
+            val steps = (totals[day] ?: continue).coerceIn(0L, MAX_DAILY_STEPS)
             val code = try {
                 post(BuildConfig.INGEST_URL, """{"steps": $steps, "date": "$day"}""")
             } catch (e: Exception) {
                 return retryOrFail(ctx, "POST failed: ${e.message}")
             }
             if (code != 200) return retryOrFail(ctx, "POST $day → HTTP $code")
-            report.append("$day: $steps ✓  ")
+            stepDays++
         }
+        report.append("steps $stepDays days ✓ (today ${totals[today] ?: 0})  ")
 
         // Sleep runs only once the step posts have landed, so nothing below can
         // cost a good steps run. A missing grant is not a failure: the permission
@@ -75,13 +84,21 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         }
 
         val nights = try {
-            val now = Instant.now()
-            client.readRecords(
-                ReadRecordsRequest(
-                    SleepSessionRecord::class,
-                    TimeRangeFilter.between(now.minus(Duration.ofHours(48)), now),
+            // From the evening before the first day: that night ends on its morning.
+            val filter = TimeRangeFilter.between(
+                first.minusDays(1).atStartOfDay(zone).toInstant(),
+                Instant.now(),
+            )
+            val sessions = mutableListOf<SleepSessionRecord>()
+            var page: String? = null
+            do {
+                val res = client.readRecords(
+                    ReadRecordsRequest(SleepSessionRecord::class, filter, pageToken = page)
                 )
-            ).records
+                sessions += res.records
+                page = res.pageToken
+            } while (page != null)
+            sessions
                 // A session belongs to the day it ENDED — the morning you woke.
                 .groupBy { it.endTime.atZone(zone).toLocalDate() }
                 .mapValues { (_, sessions) ->
@@ -93,7 +110,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             return retryOrFail(ctx, report.toString().trim())
         }
 
-        for (day in listOf(today.minusDays(1), today)) {
+        var sleepNights = 0
+        for (day in window(first, today)) {
             // No session for a day is skipped, never posted as 0 — an absent
             // record means "unknown", not "slept nothing".
             val minutes = nights[day] ?: continue
@@ -107,11 +125,16 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 report.append("sleep POST $day → HTTP $code")
                 return retryOrFail(ctx, report.toString().trim())
             }
-            report.append("sleep $day: ${minutes}m ✓  ")
+            sleepNights++
         }
+        report.append("sleep $sleepNights nights ✓ (since $first)")
 
         return done(ctx, report)
     }
+
+    /** Every day from [first] to [last], inclusive, oldest first. */
+    private fun window(first: LocalDate, last: LocalDate): Sequence<LocalDate> =
+        generateSequence(first) { it.plusDays(1) }.takeWhile { it <= last }
 
     private fun post(url: String, body: String): Int {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -146,6 +169,15 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMM d HH:mm"))
 
     companion object {
+        /** Input key: how many days, ending today, a run reads and re-posts. */
+        const val KEY_DAYS = "days"
+
+        /** The hourly + on-open window: a week of missed runs heals itself. */
+        const val ROUTINE_DAYS = 7
+
+        /** The backfill button's window — the hub keeps 120 days of each, no more. */
+        const val BACKFILL_DAYS = 120
+
         /** Mirrors the route's MAX_DAILY_STEPS guard — anything above would 404. */
         const val MAX_DAILY_STEPS = 300_000L
 

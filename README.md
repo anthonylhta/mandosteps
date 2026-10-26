@@ -14,8 +14,8 @@ out to be the cleaner path.
 
 ```
 Samsung Health ──sync──▶ Health Connect (on-device)
-                              │  AggregateRequest (steps, local-midnight ranges)
-                              │  ReadRecordsRequest (sleep sessions, last 48h)
+                              │  AggregateGroupByPeriod (steps, one per local day)
+                              │  ReadRecordsRequest (sleep sessions, same window)
                               ▼
                         this app (WorkManager hourly + on open)
                               │  POST {steps, date} · bearer auth
@@ -30,8 +30,10 @@ job.
 
 Design notes, small app or not:
 
-- **Missed days self-heal.** Every sync posts _yesterday and today_. A day the
-  phone was off gets its final count backfilled on the next run — the server
+- **Missed days self-heal.** Every sync posts _the last seven days_, so a
+  stretch where the phone (or Samsung's battery manager) kept the job asleep
+  gets its final counts on the next run that gets through. A **backfill**
+  button re-sends the last 120 days — everything the hub keeps. The server
   overwrites same-day entries, so re-posting is idempotent.
 - **Absence isn't zero.** A night with no sleep session is skipped, not sent as
   0 minutes — the hub should show "unknown", not "slept nothing". Sleep is

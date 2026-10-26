@@ -21,6 +21,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -41,11 +42,15 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.activity_main)
 
         findViewById<Button>(R.id.sync_now).setOnClickListener { syncNow() }
+        findViewById<Button>(R.id.backfill).setOnClickListener { backfill() }
         findViewById<Button>(R.id.battery).setOnClickListener { askBatteryExemption() }
 
         // Live status: whenever the manual sync finishes, re-read the prefs line.
         WorkManager.getInstance(this)
             .getWorkInfosForUniqueWorkLiveData(SYNC_NOW)
+            .observe(this) { refresh() }
+        WorkManager.getInstance(this)
+            .getWorkInfosForUniqueWorkLiveData(BACKFILL)
             .observe(this) { refresh() }
 
         schedulePeriodic()
@@ -69,6 +74,23 @@ class MainActivity : ComponentActivity() {
                 .build(),
         )
         findViewById<TextView>(R.id.status).text = getString(R.string.syncing)
+    }
+
+    /**
+     * Re-send the hub's whole retained window. Its own unique name with KEEP, so
+     * the on-open sync (REPLACE on SYNC_NOW) can't cancel a backfill mid-run and a
+     * second tap doesn't restart one already going.
+     */
+    private fun backfill() {
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            BACKFILL,
+            ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(connected())
+                .setInputData(workDataOf(SyncWorker.KEY_DAYS to SyncWorker.BACKFILL_DAYS))
+                .build(),
+        )
+        findViewById<TextView>(R.id.status).text = getString(R.string.backfilling)
     }
 
     private fun schedulePeriodic() {
@@ -123,5 +145,6 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val SYNC_NOW = "sync-now"
+        const val BACKFILL = "backfill"
     }
 }
