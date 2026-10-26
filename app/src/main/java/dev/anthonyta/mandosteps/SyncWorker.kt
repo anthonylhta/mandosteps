@@ -21,12 +21,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * Reads the last [KEY_DAYS] days of step totals plus the sleep of the same nights
- * from Health Connect and POSTs each to the hub's ingest routes. The routine run
- * covers a week, so a stretch where Samsung kept the job asleep self-heals on the
- * next run that gets through; the backfill button widens it to the hub's whole
- * retained history. The routes overwrite same-day entries, so re-posting is
- * idempotent.
+ * Reads the last [WINDOW_DAYS] days of step totals plus the sleep of the same
+ * nights from Health Connect and POSTs each to the hub's ingest routes. A week
+ * rides along on every run so a stretch where Samsung kept the job asleep
+ * self-heals on the next run that gets through — the routes overwrite same-day
+ * entries.
  */
 class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
@@ -42,11 +41,10 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
-        val first = today.minusDays(inputData.getInt(KEY_DAYS, ROUTINE_DAYS) - 1L)
+        val first = today.minusDays(WINDOW_DAYS - 1L)
         val report = StringBuilder()
 
-        // One grouped read for the whole window rather than a read per day, so a
-        // backfill stays well inside Health Connect's read quota.
+        // One grouped read for the whole window rather than a read per day.
         val totals = try {
             client.aggregateGroupByPeriod(
                 AggregateGroupByPeriodRequest(
@@ -169,14 +167,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         LocalDateTime.now().format(DateTimeFormatter.ofPattern("MMM d HH:mm"))
 
     companion object {
-        /** Input key: how many days, ending today, a run reads and re-posts. */
-        const val KEY_DAYS = "days"
-
-        /** The hourly + on-open window: a week of missed runs heals itself. */
-        const val ROUTINE_DAYS = 7
-
-        /** The backfill button's window — the hub keeps 120 days of each, no more. */
-        const val BACKFILL_DAYS = 120
+        /** How many days, ending today, every run re-posts: a week of missed runs heals. */
+        const val WINDOW_DAYS = 7
 
         /** Mirrors the route's MAX_DAILY_STEPS guard — anything above would 404. */
         const val MAX_DAILY_STEPS = 300_000L

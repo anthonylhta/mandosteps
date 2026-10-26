@@ -35,13 +35,6 @@
         android:text="@string/sync_now" />
 
     <Button
-        android:id="@+id/backfill"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/backfill" />
-
-    <Button
         android:id="@+id/battery"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

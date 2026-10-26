@@ -4,8 +4,6 @@
     <string name="never_synced">never synced</string>
     <string name="syncing">syncing…</string>
     <string name="sync_now">sync now</string>
-    <string name="backfill">backfill 120 days</string>
-    <string name="backfilling">backfilling 120 days… keep the app open</string>
     <string name="battery_ask">allow background sync</string>
     <string name="battery_ok">background sync allowed ✓</string>
     <string name="hc_unavailable">Health Connect unavailable on this device</string>
